@@ -1,0 +1,697 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docs.mesho.live/schemas/ojson-1.0.schema.json",
+  "title": "Orienteering JSON (OJSON) 1.0",
+  "description": "Start-list and result-list documents for orienteering events — a JSON binding of the IOF 3.0 data model. Every duration is an integer count of milliseconds; every time of day is an ISO 8601 timestamp carrying the event's UTC offset. Absent means 'not known' or 'does not apply'; null never appears.",
+  "type": "object",
+  "required": ["ojson", "documentType", "createTime", "event"],
+  "properties": {
+    "ojson": {
+      "description": "The format and its version, following OpenAPI's 'openapi' and JSON-RPC's 'jsonrpc'. This schema describes 1.0 and accepts any 1.x document: within a major version the format is additive, so a 1.1 document is a valid 1.0 one carrying properties this schema does not list. A consumer pinning this file therefore keeps validating as the format grows. A 2.x document may mean something different and is rejected.",
+      "type": "string",
+      "pattern": "^1\\.[0-9]+$"
+    },
+    "documentType": {
+      "description": "Which document this is. A startList omits every result-derived property; an entryList omits those AND every start time, stating only who has entered. This is a CLOSED vocabulary, so a new document kind is the one change to this format that a schema pinned to an earlier version cannot accept.",
+      "enum": ["startList", "resultList", "entryList"]
+    },
+    "creator": {
+      "description": "The software that wrote the document.",
+      "type": "string"
+    },
+    "createTime": {
+      "description": "When the document was written, in UTC.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": { "$ref": "#/$defs/event" },
+    "controls": {
+      "description": "Every control the event holds — the punched controls and the Start/Finish/Check anchors courses hang off. They sit on the document because a control is shared: one physical control is punched by several courses and carries one position, one offset and one radio setting.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/control" }
+    },
+    "legDistances": {
+      "description": "The measured distance between one control and the next, for every leg the event has a measurement or an untimed allowance for. This is the geometry a course total is computed from — a total alone cannot be re-measured or re-split when a course changes.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/legDistance" }
+    },
+    "customFields": {
+      "description": "What each key in an entry's customFields means. Only the fields exported entries actually hold a value for are declared. A consumer must tolerate an entry value whose key is not declared here: meshO keeps a value whose field was later deleted from the settings, and the export carries the value rather than dropping it.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/customField" }
+    },
+    "classes": {
+      "description": "Every exported class, in the operator's own class order. A class with no entries is left out.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/class" }
+    }
+  },
+  "$defs": {
+    "control": {
+      "description": "One control: its identity, where it is, and how it behaves. A Start/Finish/Check control normally carries no punch code of its own — which codes act as start, finish and check is an event-level setting, because one unit can serve several roles.",
+      "type": "object",
+      "required": ["id", "name", "type"],
+      "properties": {
+        "id": {
+          "description": "The control id a course's startControlId / finishControlId refers to.",
+          "type": "string"
+        },
+        "name": { "type": "string" },
+        "type": { "enum": ["start", "finish", "check", "normal", "unknown"] },
+        "codes": {
+          "description": "The punch codes that count as this control. Normally one; several when more than one unit stands for the same control.",
+          "type": "array",
+          "items": { "type": "integer" },
+          "minItems": 1
+        },
+        "scorePoints": {
+          "description": "What this control is worth on a score course. Absent when the organiser priced it at nothing in particular, in which case the class's (or the event's) default applies — so absent and 0 are different answers, 0 being a control deliberately worth nothing.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "isRadio": {
+          "description": "Present and true when the control has a radio unit reporting passings.",
+          "const": true
+        },
+        "radioName": { "type": "string" },
+        "timeOffsetMilliseconds": {
+          "description": "An operator correction applied to every punch this control produced.",
+          "type": "integer"
+        },
+        "replacementCode": {
+          "description": "A code standing in for this control — a replacement unit put out mid-event.",
+          "type": "integer"
+        },
+        "isFaulty": {
+          "description": "Present and true when the operator has marked the control non-functional.",
+          "const": true
+        }
+      }
+    },
+
+    "radioControl": {
+      "description": "One radio control a class is configured to report passings at. A relay configures them per leg, so the leg travels with the code.",
+      "type": "object",
+      "required": ["controlCode"],
+      "properties": {
+        "controlCode": { "$ref": "#/$defs/controlCode" },
+        "leg": {
+          "description": "The relay leg this applies to. Absent for an individual class, which has no legs.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+
+    "legDistance": {
+      "description": "The distance from one control to the next, and any allowance the leg carries. Identified by the pair of control ids rather than by a course: a leg between two controls is the same leg in every course that runs it. The pair is UNDIRECTED.",
+      "type": "object",
+      "required": ["fromControlId", "toControlId"],
+      "properties": {
+        "fromControlId": { "type": "string" },
+        "toControlId": { "type": "string" },
+        "meters": {
+          "description": "The measured distance. Absent when the leg is unmeasured — which is NOT zero: a course total that counted an unmeasured leg as 0 would understate the course.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "untimedAllowanceMilliseconds": {
+          "description": "How much of this leg's time is not counted — a road-crossing allowance. Absent for a normally-timed leg.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+
+    "customField": {
+      "description": "One operator-defined custom competitor field. The definitions are event-independent in meshO, so they sit on the document rather than on a class or an entry.",
+      "type": "object",
+      "required": ["key", "name", "type"],
+      "properties": {
+        "key": {
+          "description": "The key an entry's values are stored under. Stable across a rename of the field.",
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "name": {
+          "description": "The operator-facing label.",
+          "type": "string"
+        },
+        "type": {
+          "description": "How the value is entered and sorted. The value itself is always a string, whatever this says.",
+          "enum": ["text", "number"]
+        }
+      }
+    },
+
+    "entrySource": {
+      "description": "Where a competitor came from. Absent when the event has no record of it, which means 'we cannot say' rather than 'not an entry on the day'.",
+      "type": "string"
+    },
+
+    "customFieldValues": {
+      "description": "An entry's custom-field values, keyed by the field's stable key. Always strings, including a number field's value.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+
+    "duration": {
+      "description": "A duration, as an integer count of milliseconds.",
+      "type": "integer"
+    },
+    "timestamp": {
+      "description": "A time of day, as an ISO 8601 timestamp carrying the event's UTC offset.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "controlCode": {
+      "description": "A control's punch code.",
+      "type": "integer"
+    },
+
+    "event": {
+      "type": "object",
+      "required": ["id", "name", "date", "utcOffset", "type"],
+      "properties": {
+        "id": {
+          "description": "The exporting system's own event id.",
+          "type": "string"
+        },
+        "eventorId": {
+          "description": "The Eventor event id — the key a federation reconciles results against. Absent unless the event came from Eventor.",
+          "type": "integer"
+        },
+        "name": { "type": "string" },
+        "date": {
+          "description": "The date the event is held, in event-local time.",
+          "type": "string",
+          "format": "date"
+        },
+        "utcOffset": {
+          "description": "The UTC offset every timestamp in the document carries.",
+          "type": "string",
+          "pattern": "^[+-][0-9]{2}:[0-9]{2}$"
+        },
+        "startTime": {
+          "description": "The event's published start ('zero') time, floored to a half-hour boundary. Which start it is derived from follows the document: a startList uses the earliest ALLOCATED start, a resultList the earliest time anybody ACTUALLY started, punched starts included. The two differ for an event with punching starts, and using the allocated rule on a result list would head it with a time nobody ran to. Absent when no start time is known.",
+          "$ref": "#/$defs/timestamp"
+        },
+        "information": {
+          "description": "The organiser's note about the event.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Which kind of event this is. Always stated: an event's type cannot be changed after it is created, so a document that omitted it could not be repaired.",
+          "enum": ["Individual", "Relay"]
+        },
+        "defaultNumberOfLegs": {
+          "description": "How many legs a relay class gets by default. Absent for an individual event.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "courseFormat": {
+          "description": "What the organiser flags the event as, and the default a new course is created with. It decides no runner's result: every course states how IT is scored, because one event may hold line, scatter and score courses at once.",
+          "$ref": "#/$defs/courseFormat"
+        },
+        "scoreDefaultPoints": {
+          "description": "What a control is worth on a score course when it states no price of its own and no class overrides it. Absent when the event states nothing.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "scoreTimeLimitSeconds": {
+          "description": "How long a score course's runners have, in seconds. Absent when there is no limit — which is not the same as 0, a limit everybody is instantly past.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "scorePenaltyPointsPerMinute": {
+          "description": "Points given back per minute, or part minute, past the limit. Absent when the event states nothing; 0 is a stated choice that leaves the limit toothless.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "competitionLevel": { "enum": ["Local", "Regional", "State", "National", "International"] },
+        "discipline": { "type": "string" },
+        "isMassStart": {
+          "description": "Present and true when the whole event starts at once.",
+          "const": true
+        },
+        "massStartTimeSeconds": {
+          "description": "The event-wide mass start, as seconds past midnight.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "restartTimeSeconds": {
+          "description": "The event-wide restart, as seconds past midnight.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "allowPunchingStartOverride": {
+          "description": "Present and false when a punch at a start unit may NOT override an allocated start. Absent when it takes the default (allowed).",
+          "const": false
+        },
+        "centreLatitude": { "type": "number" },
+        "centreLongitude": { "type": "number" },
+        "punchCodes": {
+          "description": "Which punch codes act as start, finish and check. Event-level rather than a property of a control because one unit can serve several roles, and meshO's Start/Finish/Check controls are codeless by design.",
+          "type": "object",
+          "properties": {
+            "start": { "$ref": "#/$defs/controlCodeList" },
+            "finish": { "$ref": "#/$defs/controlCodeList" },
+            "check": { "$ref": "#/$defs/controlCodeList" }
+          }
+        }
+      }
+    },
+
+    "controlCodeList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/controlCode" },
+      "minItems": 1
+    },
+
+    "courseFormat": {
+      "description": "How a course is scored. Line: every control, in the printed order — missing one, or taking them out of order, is a mis-punch. Scatter: a stated number of them (scatterRequiredControlCount), in any order, ranked on time exactly as a line course. Score: every control optional, in any order, each worth points. The vocabulary is closed — a format a consumer had never heard of would have to be guessed at, and the guess is somebody's result.",
+      "enum": ["Line", "Scatter", "Score"]
+    },
+
+    "class": {
+      "type": "object",
+      "required": ["id", "name", "isTeamClass"],
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string" },
+        "shortName": {
+          "description": "Absent when it matches the name.",
+          "type": "string"
+        },
+        "order": {
+          "description": "The operator's own class ordering — classes appear in this order.",
+          "type": "integer"
+        },
+        "scoreDefaultPoints": {
+          "description": "This class's own default control price, overriding the event's. Absent means \"the event's\", never 0 — which would be a class whose controls are all worth nothing. Each of the three score settings inherits on its own.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "scoreTimeLimitSeconds": {
+          "description": "This class's own time limit in seconds, overriding the event's — the six-hour class at a three-hour score event. Absent means \"the event's\".",
+          "type": "integer",
+          "minimum": 1
+        },
+        "scorePenaltyPointsPerMinute": {
+          "description": "This class's own penalty rate, overriding the event's. Absent means \"the event's\".",
+          "type": "integer",
+          "minimum": 0
+        },
+        "isTeamClass": {
+          "description": "True for a relay class, whose entries are teams rather than persons.",
+          "type": "boolean"
+        },
+        "numberOfLegs": {
+          "description": "The number of relay legs. Absent for an individual class.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "massStartTimeSeconds": {
+          "description": "The class's mass start, as seconds past midnight in event-local time. Present only when the class has one. This is the rule an entry's startTime resolves FROM, not the resolved time itself — both are published, so an import can re-derive as well as display.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "restartTimeSeconds": {
+          "description": "The class's restart time, as seconds past midnight. Present only when set.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "excludeFromEventMassStart": {
+          "description": "Present and true when the class opts out of the event-wide mass start.",
+          "const": true
+        },
+        "excludeFromEventRestart": {
+          "description": "Present and true when the class opts out of the event-wide restart.",
+          "const": true
+        },
+        "radioControls": {
+          "description": "The radio controls configured for this class. Distinct from splitControls, which says which split columns THIS document publishes: this is the operator's configuration, and without it a round trip brings the event back with every radio unconfigured.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/radioControl" }
+        },
+        "courses": {
+          "description": "The class's course(s). A forked course expands to one entry per variation.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/course" }
+        },
+        "splitControls": {
+          "description": "The control codes this class's split-time columns are built from, in course order. In a live export these are the class's radio controls (the only splits that exist before a card is downloaded); in a final export, every course control. Absent for a forked course, whose runners take different sequences, and in a start list.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/controlCode" }
+        },
+        "legs": {
+          "description": "A relay class's per-leg split-time columns. Absent for an individual class and in a start list.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["leg"],
+            "properties": {
+              "leg": { "type": "integer", "minimum": 1 },
+              "splitControls": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/controlCode" }
+              }
+            }
+          }
+        },
+        "persons": {
+          "description": "The individual entries in this class. For a relay class these are its entrants who are not on a team — a relay entered per person has them until the operator builds the teams — never a runner a team already lists.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/personEntry" }
+        },
+        "teams": {
+          "description": "The teams in this class. Absent for an individual class.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/teamEntry" }
+        }
+      },
+      "if": { "properties": { "isTeamClass": { "const": false } }, "required": ["isTeamClass"] },
+      "then": { "not": { "required": ["teams"] } }
+    },
+
+    "course": {
+      "description": "A course, or a reference to one. A class-level entry carries the full description; a reference on an entry carries only id, name and variationCode.",
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "description": "A string, because a fork variation's id is composed: '5-AD' is variation AD of course 5.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The course's published name — the linked class's full name, with a fork variation's code appended.",
+          "type": "string"
+        },
+        "family": {
+          "description": "The name grouping a forked course's variations together. Present only on a fork variation.",
+          "type": "string"
+        },
+        "variationCode": {
+          "description": "The course setter's variation code. Present only on a fork variation.",
+          "type": "string"
+        },
+        "courseFormat": {
+          "description": "How this course is scored. Stated on every class-level course entry; absent on a course reference, which carries identity only. READ IT BEFORE READING 'controls' AS A SEQUENCE: at Scatter or Score that list is every control in play rather than an order anybody printed on a map. The course owns this, not the event — one event may hold all three formats at once — so a consumer scoring a run reads it here, falling back to event.courseFormat and then to Line.",
+          "$ref": "#/$defs/courseFormat"
+        },
+        "scatterRequiredControlCount": {
+          "description": "How many of the course's controls a competitor must visit, in any order, to have completed it. Present only on a Scatter course requiring a subset — absent means every control the course carries, which is how a scatter course requiring all of them is stated, and no other format states it at all. This is the operator's setting as stored: a count above the course's own control count is clamped to it when a card is scored, so a consumer judging completion itself wants min(this, numberOfControls).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "numberOfControls": {
+          "description": "How many controls the course has, faulty ones included. At an any-order course this is how many are in play — every control the event has.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "lengthMeters": {
+          "description": "The course length in metres. A hand-entered length is published exactly as entered; a measured one is rounded to the nearest 100 m, and is absent when any leg is unmeasured.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "startControlId": {
+          "description": "The id of the control the course starts at. An importer that finds one uses it rather than synthesizing an anchor of its own.",
+          "type": "string"
+        },
+        "finishControlId": {
+          "description": "The id of the control the course finishes at.",
+          "type": "string"
+        },
+        "information": {
+          "description": "The course setter's note about the course.",
+          "type": "string"
+        },
+        "climbMeters": {
+          "description": "The course climb in metres, when set.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "controls": {
+          "description": "The course's control codes in order, start and finish excluded. Absent on a course reference and on a forked parent course. At an any-order courseFormat this is NOT a sequence — it is every control in play, in code order because there is no other order to give them.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/controlCode" }
+        }
+      }
+    },
+
+    "person": {
+      "type": "object",
+      "required": ["givenName", "familyName", "name"],
+      "properties": {
+        "givenName": { "type": "string" },
+        "familyName": { "type": "string" },
+        "name": {
+          "description": "Given and family name joined for display, so a consumer need not guess the order.",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "The organiser's competitor number from the registration system named in externalIdProvider. Absent when there is none — the exporting system's internal id is never published in its place.",
+          "type": "integer"
+        },
+        "externalIdProvider": {
+          "description": "The registration system externalId belongs to, e.g. 'Eventor'.",
+          "type": "string"
+        },
+        "iofPersonId": {
+          "description": "The athlete's IOF Person ID — a stable identity across events and systems.",
+          "type": "integer"
+        }
+      }
+    },
+
+    "startRequest": {
+      "description": "An entrant's start-time preference, and one other member of the group it is about.\n\nThe request is about a GROUP, not a pair. \"Start apart from\" and \"start beside\" are asked by a family, a car-load or a club, so what the request concerns is a set of entrants. This object has room for exactly one other person — the shape IOF 3.0's StartTimeAllocationRequest has, kept deliberately — so a group is published as one EDGE per member: every member states the request and each names one other member, and those edges form a CYCLE over the whole group, the members in some order, each naming the next one along and the last naming the first. A group of two, the ordinary case, is unchanged by that: each of the pair names the other.\n\nAn importer must UNION, never assign. Resolve the person and ADD them to the group the entrant already holds, then close the group so everybody named by any member holds the whole of it. Assigning instead reads a family of four back as one pair and drops the other two out of the arrangement. Because the rule is union-and-close, ANY CONNECTED set of edges reassembles the group — a chain, a star, or every pairing all import to the same group — so a producer need only leave the group connected, and need not reproduce this cycle.\n\nWhat a SCOPED document states. When a document is scoped — to some classes, to one kind of entry, or by a result list's status filter — meshO names only members the document itself publishes, walking on around the cycle past every member it leaves out (StartRequestExportRules.ResolveExportPartner). So the members a scoped document DOES publish are joined up by the edges it states, whichever members those are; the members it leaves out are simply absent, and their part of the arrangement is not in this file to be recovered. That is a promise about meshO's own output, not a rule an importer may lean on — another producer may name somebody who appears nowhere else in the file, so the person is resolved against the importing event rather than against this document.\n\nThe person is a person, not an id. meshO's competitor id is a private counter with no meaning outside the installation that issued it — the same reason person.externalId exists rather than publishing the internal one. So the member is written the way every other person in the document is, and an importer matches them back on their IOF id, their organiser number or their name.",
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "description": "EarlyStart, LateStart, SeparatedFrom or GroupedWith — the IOF 3.0 StartTimeAllocationRequest vocabulary, written as the standard's own name so converting a document to IOF XML is a copy rather than a second lookup table that could drift. IOF's fifth value, Normal, is never published: it means \"no preference\", which is what the absence of this whole object already says.",
+          "enum": ["EarlyStart", "LateStart", "SeparatedFrom", "GroupedWith"]
+        },
+        "person": {
+          "description": "One other member of the group, for the two kinds that have one — not the whole group, and not a partner. Absent for an early or late start, which are about the entrant alone.\n\nThe entries of a group name each other in a cycle (see this object's description), so an importer joins the group by UNION: resolve this person, add them to whatever group the entrant already holds, and close it.\n\nAbsent, too, when the document publishes no other member of the group — the kind is still worth stating on its own. meshO never names a member the document leaves out (see this object's description), so in a document meshO wrote this person is always somebody the reader can find in it; a document from another producer need not be, which is why an importer resolves the person against its own event rather than against the file.",
+          "$ref": "#/$defs/person"
+        }
+      }
+    },
+
+    "organisation": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string" },
+        "shortName": { "type": "string" },
+        "country": {
+          "description": "ISO 3166-1 alpha-3 country code.",
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      }
+    },
+
+    "controlCard": {
+      "type": "object",
+      "required": ["system", "number"],
+      "properties": {
+        "system": {
+          "description": "The punching system, e.g. 'SI'.",
+          "type": "string"
+        },
+        "number": { "type": "integer" }
+      }
+    },
+
+    "split": {
+      "description": "One control on an entry's run. Present in a result list only.",
+      "type": "object",
+      "required": ["controlCode", "status"],
+      "properties": {
+        "controlCode": { "$ref": "#/$defs/controlCode" },
+        "status": {
+          "description": "OK (punched, on course), Missing (on the course, not punched) or Additional (punched, not on the course) — the IOF 3.0 SplitTime vocabulary. On an any-order course (scatter or score) Missing does NOT mean the entry fell short: no particular control is required there, so a clean score run reports Missing for every control in the forest it chose not to visit. Read the class's completion from status and score, not by counting these.",
+          "enum": ["OK", "Missing", "Additional"]
+        },
+        "time": {
+          "description": "Elapsed time from the competitor's start to this punch. Absent when the control was not punched.",
+          "$ref": "#/$defs/duration"
+        },
+        "rank": {
+          "description": "This competitor's rank at this control within their class. Radio splits only.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeBehind": {
+          "description": "Gap to the fastest entry at this control. Radio splits only.",
+          "$ref": "#/$defs/duration"
+        }
+      }
+    },
+
+    "entryFields": {
+      "description": "The properties every kind of entry shares. A startList document carries only bibNumber and startTime from this set.",
+      "type": "object",
+      "properties": {
+        "course": {
+          "description": "Which of the class's courses this entry runs — a reference to a class-level course entry. Present when the class forks or has a course pool. On a relay team member this is the leg's own course.",
+          "$ref": "#/$defs/course"
+        },
+        "assignedVariationCode": {
+          "description": "The variation of a forked course this entry is LOCKED to, as the operator set it before the race — distinct from the variation named by 'course', which after evaluation is the fork they were judged to have run. On a relay team member this is the leg's own fork, which nothing else in the document records.",
+          "type": "string"
+        },
+        "ranking": {
+          "description": "The athlete's place on an external ranking list — a national ranking, a club's seeding order, whatever the organiser was handed. 1 is the BEST-ranked athlete and the number grows worse. Absent when they are not on the list, which is not 0: 0 is not a place anybody holds, and sorting on it would seat every unranked entrant ahead of rank 1. Do not confuse it with 'score', which is score-course points, where bigger is better. IOF XML has no rank element: the nearest thing is a Score of type 'Rank' on an EntryList, and neither a StartList nor a ResultList can carry one at all. Published on every document kind, and gated by nothing — a ranking is not a result, so a mis-punch states theirs exactly as a winner does.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "startRequest": {
+          "description": "What this entrant asked for when the start times were allocated — an early start because they have to leave, a late one because they arrive late, or a placing relative to somebody else. Absent when they asked for nothing, which is the ordinary case.\n\nA request, never a guarantee: it says what was asked, not what the draw did. The times themselves are the answer to that, and a start list carries both.\n\nThe same fact as IOF XML's PersonEntry/StartTimeAllocationRequest, and the same vocabulary — but XML can only carry it on an EntryList, where every other entry fact travels on all three kinds. Here it does too.",
+          "$ref": "#/$defs/startRequest"
+        },
+        "bibNumber": {
+          "description": "Bib (start) number, when allocated.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The entry's result status in the IOF 3.0 vocabulary. Active and Inactive appear in live exports only, where they carry the two states a final export has resolved: still out on course, and never started. Absent in a start list. This is the whole vocabulary the format uses — the wider IOF ResultStatus enum has members (Finished, SportingWithdrawal, Moved, MovedUp) that no OJSON document states, so a consumer needs no branch for them.",
+          "enum": [
+            "OK",
+            "MissingPunch",
+            "DidNotStart",
+            "DidNotFinish",
+            "Disqualified",
+            "OverTime",
+            "NotCompeting",
+            "DidNotEnter",
+            "Cancelled",
+            "Active",
+            "Inactive"
+          ]
+        },
+        "provisional": {
+          "description": "Present and true when the result is a finish inferred from a radio or finish punch while the e-card is still to be downloaded, so the controls have not been verified. Both document kinds publish it, and a FINAL export is where it matters most: IOF XML cannot say this, so a final XML export can only downgrade such a result to DidNotFinish, whereas here the status stays honest and this flag carries the caveat. A consumer reading a DidNotFinish beside provisional:true is looking at a runner who did finish but whose card is still to be read, not at somebody who retired.",
+          "const": true
+        },
+        "startTime": {
+          "description": "The start time. In a start list this is always the allocated start, never a punched one.",
+          "$ref": "#/$defs/timestamp"
+        },
+        "finishTime": {
+          "description": "The finish time. Absent in a start list, and whenever no time may be published.",
+          "$ref": "#/$defs/timestamp"
+        },
+        "time": {
+          "description": "Running time. On a team member this is that runner's own leg time, not the team's cumulative time.",
+          "$ref": "#/$defs/duration"
+        },
+        "startTimeSource": {
+          "description": "Which rule produced the start time. The same 10:00 can be an individually drawn time, a class mass start or the event's, and which it was decides what a re-evaluation after an import derives.",
+          "enum": ["Midnight", "CheckPunch", "AllocatedIndividual", "AllocatedClass", "AllocatedEvent", "Punched"]
+        },
+        "statusIsManual": {
+          "description": "Present and true when the status is an operator's ruling rather than one derived from the punches.",
+          "const": true
+        },
+        "position": {
+          "description": "Placing within the class. Ranked entries only.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeBehind": {
+          "description": "Gap to the class winner. Ranked entries only; the winner's is 0, stated rather than omitted. Absent for every entry of a class ranked on points, winner included: at a score event the entry ahead is not the faster one, so a time gap would be a gap to somebody who did not win. Such a class carries score instead.",
+          "$ref": "#/$defs/duration"
+        },
+        "score": {
+          "description": "What the entry collected on a score course, already net of any time-limit penalty — the key its class was ranked on, ahead of race time. Present only for a ranked entry of a points-ranked class; its absence is what tells a consumer that position was ordered on time. Matches the IOF XML export's Result/Score.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+
+    "personEntry": {
+      "description": "A competitor in an individual class.",
+      "allOf": [{ "$ref": "#/$defs/entryFields" }],
+      "type": "object",
+      "required": ["person"],
+      "properties": {
+        "person": { "$ref": "#/$defs/person" },
+        "organisation": { "$ref": "#/$defs/organisation" },
+        "controlCards": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/controlCard" }
+        },
+        "customFields": { "$ref": "#/$defs/customFieldValues" },
+        "entrySource": { "$ref": "#/$defs/entrySource" },
+        "splitSource": {
+          "description": "Where the splits came from: a downloaded e-card (authoritative) or radio-control passings (published before any download).",
+          "enum": ["card", "radio"]
+        },
+        "splits": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/split" }
+        }
+      }
+    },
+
+    "teamEntry": {
+      "description": "A team in a relay class. Unlike IOF XML's TeamResult, a team states its own status, time and placing.",
+      "allOf": [{ "$ref": "#/$defs/entryFields" }],
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string" },
+        "organisations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/organisation" }
+        },
+        "members": {
+          "description": "The team's runners in leg order. A leg with nobody assigned is left out.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/teamMember" }
+        }
+      }
+    },
+
+    "teamMember": {
+      "description": "One runner on one leg of a relay team.",
+      "allOf": [{ "$ref": "#/$defs/entryFields" }],
+      "type": "object",
+      "required": ["leg", "person"],
+      "properties": {
+        "leg": {
+          "description": "The leg this runner runs.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "person": { "$ref": "#/$defs/person" },
+        "organisation": {
+          "description": "The runner's own club, which may differ from the team's.",
+          "$ref": "#/$defs/organisation"
+        },
+        "customFields": { "$ref": "#/$defs/customFieldValues" },
+        "entrySource": { "$ref": "#/$defs/entrySource" },
+        "controlCards": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/controlCard" }
+        },
+        "splitSource": {
+          "enum": ["card", "radio"]
+        },
+        "splits": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/split" }
+        }
+      }
+    }
+  }
+}
